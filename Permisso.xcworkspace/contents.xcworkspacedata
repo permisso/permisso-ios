@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <Group
+      location = "group:Permisso"
+      name = "Permisso">
+      <Group
+         location = "group:Tests"
+         name = "Tests">
+         <Group
+            location = "group:PermissoTests"
+            name = "PermissoTests">
+            <FileRef
+               location = "group:PermissoTests.swift">
+            </FileRef>
+         </Group>
+      </Group>
+      <FileRef
+         location = "group:Package.swift">
+      </FileRef>
+      <Group
+         location = "group:Sources"
+         name = "Sources">
+         <Group
+            location = "group:Permisso"
+            name = "Permisso">
+            <FileRef
+               location = "group:PermissoWebView.swift">
+            </FileRef>
+         </Group>
+      </Group>
+   </Group>
+   <FileRef
+      location = "group:Example/Example.xcodeproj">
+   </FileRef>
+</Workspace>
