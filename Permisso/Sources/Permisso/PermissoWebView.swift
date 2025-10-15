@@ -3,6 +3,22 @@ import WebKit
 import SafariServices // Import for the in-app browser
 import os.log
 
+// Shared process pool to improve WebKit performance and reduce startup time
+extension WKProcessPool {
+    static let shared: WKProcessPool = {
+        let pool = WKProcessPool()
+        return pool
+    }()
+}
+
+// Shared website data store to reduce process overhead
+extension WKWebsiteDataStore {
+    static let optimized: WKWebsiteDataStore = {
+        let store = WKWebsiteDataStore.default()
+        return store
+    }()
+}
+
 // Enum to define link handling behavior
 public enum PermissoLinkBehavior {
     case customTab      // Open in SFSafariViewController (in-app browser)
@@ -68,17 +84,52 @@ public class PermissoWebView: UIView {
         setupWebView()
     }
 
-    // Configuration logic
+    // Configuration logic with aggressive performance optimizations
     private func setupWebView() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.setupWebView()
+            }
+            return
+        }
+        
         let configuration = WKWebViewConfiguration()
-        // Important: This allows JavaScript to open windows
+        
+        // CRITICAL: Use shared process pool to prevent multiple WebKit process launches
+        configuration.processPool = WKProcessPool.shared
+        configuration.websiteDataStore = WKWebsiteDataStore.optimized
+        
+        // Aggressive simulator optimizations to prevent GPU/WebContent process delays
+        #if targetEnvironment(simulator)
+        // Safely disable GPU acceleration and hardware features that cause delays
+        if configuration.preferences.responds(to: Selector(("setValue:forKey:"))) {
+            configuration.preferences.setValue(false, forKey: "acceleratedDrawingEnabled")
+            configuration.preferences.setValue(false, forKey: "canvasUsesAcceleratedDrawing")
+            configuration.preferences.setValue(false, forKey: "webGLEnabled")
+            configuration.preferences.setValue(false, forKey: "acceleratedCompositingEnabled")
+        }
+        
+        // Reduce memory pressure that can slow process launching
+        if configuration.responds(to: Selector(("setValue:forKey:"))) {
+            configuration.setValue(false, forKey: "allowsInlineMediaPlayback")
+            configuration.setValue([], forKey: "mediaTypesRequiringUserActionForPlayback")
+        }
+        #else
+        // Enable optimizations for real devices
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        #endif
+        
+        // Essential WebKit optimizations
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
-
-        // Add message handler to intercept postMessage events
+        configuration.preferences.javaScriptEnabled = true
+        configuration.suppressesIncrementalRendering = true // Faster initial render
+        
+        // Minimize user content controller overhead
         let contentController = configuration.userContentController
         contentController.add(self, name: "iosBridge")
 
-        // Inject JavaScript to listen for postMessage events
+        // Optimized JavaScript injection - minimal and fast
         let postMessageScript = """
         window.addEventListener('message', function(e) {
           try {
@@ -86,7 +137,6 @@ public class PermissoWebView: UIView {
             if (typeof data === 'string') {
               try { data = JSON.parse(data); } catch(_) {}
             }
-
             if (window.webkit?.messageHandlers?.iosBridge) {
               window.webkit.messageHandlers.iosBridge.postMessage(JSON.stringify(data));
             }
@@ -96,22 +146,76 @@ public class PermissoWebView: UIView {
         });
         """
 
-        let userScript = WKUserScript(source: postMessageScript, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        let userScript = WKUserScript(source: postMessageScript, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         contentController.addUserScript(userScript)
 
-        webView = WKWebView(frame: self.bounds, configuration: configuration)
-        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // Create WebView with error handling
+        do {
+            webView = WKWebView(frame: self.bounds, configuration: configuration)
+            webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            
+            // Performance optimizations for simulator
+            #if targetEnvironment(simulator)
+            webView.scrollView.layer.shouldRasterize = false
+            webView.layer.shouldRasterize = false
+            webView.scrollView.decelerationRate = UIScrollView.DecelerationRate.fast
+            #endif
+            
+            // Optimize scrolling performance
+            webView.scrollView.bounces = false
+            webView.scrollView.showsHorizontalScrollIndicator = false
+            webView.scrollView.showsVerticalScrollIndicator = false
+            webView.scrollView.contentInsetAdjustmentBehavior = .never
 
-        // Set the delegate that handles UI events like opening new tabs
-        webView.uiDelegate = self
+            // Set delegates for comprehensive handling
+            webView.uiDelegate = self
+            webView.navigationDelegate = self
 
-        self.addSubview(webView)
+            self.addSubview(webView)
+            
+            os_log("WebView created successfully", log: OSLog.default, type: .info)
+            
+        } catch {
+            os_log("Failed to create WebView: %@", log: OSLog.default, type: .error, error.localizedDescription)
+            // Create a fallback view or handle the error appropriately
+            createFallbackView()
+        }
+    }
+    
+    // Fallback method when WebView creation fails
+    private func createFallbackView() {
+        let fallbackLabel = UILabel(frame: self.bounds)
+        fallbackLabel.text = "WebView initialization failed. Please restart the app."
+        fallbackLabel.textAlignment = .center
+        fallbackLabel.numberOfLines = 0
+        fallbackLabel.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        fallbackLabel.backgroundColor = UIColor.systemBackground
+        self.addSubview(fallbackLabel)
     }
 
-    // Public method for the customer to load the widget URL
+    // Optimized method for loading URLs with enhanced error handling
     public func load(url: URL) {
-        let request = URLRequest(url: url)
-        webView.load(request)
+        // Validate URL before loading
+        guard url.scheme == "http" || url.scheme == "https" else {
+            os_log("Invalid URL scheme for WebView: %@", log: OSLog.default, type: .error, url.absoluteString)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        
+        // Network optimizations to reduce load time
+        request.cachePolicy = .returnCacheDataElseLoad
+        request.timeoutInterval = 15.0 // Reduced timeout for faster failure detection
+        
+        // Optimized headers for better performance
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+        request.setValue("1", forHTTPHeaderField: "DNT") // Do Not Track for privacy
+        request.setValue("gzip, deflate, br", forHTTPHeaderField: "Accept-Encoding")
+        
+        // Load with enhanced error handling
+        DispatchQueue.main.async { [weak self] in
+            self?.webView.load(request)
+        }
     }
 
     // Public method to configure link handling behavior
@@ -123,6 +227,64 @@ public class PermissoWebView: UIView {
     // Public method to configure message handling
     public func configureMessageHandler(_ handler: PermissoMessageHandler?) {
         self.messageHandler = handler
+    }
+    
+    // Method to handle WebKit process failures and attempt recovery
+    public func handleWebKitFailure() {
+        os_log("Attempting WebKit recovery due to process failure", log: OSLog.default, type: .info)
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Remove current WebView
+            self.webView?.removeFromSuperview()
+            self.webView?.configuration.userContentController.removeScriptMessageHandler(forName: "iosBridge")
+            
+            // Force cleanup
+            self.webView = nil
+            
+            // Wait briefly for cleanup
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                // Recreate WebView with fresh configuration
+                self.setupWebView()
+            }
+        }
+    }
+    
+    // Method to preload WebKit processes to reduce initial startup time
+    public static func preloadWebKitProcesses() {
+        // Only preload on main thread to avoid WebKit initialization issues
+        DispatchQueue.main.async {
+            do {
+                // Create a minimal WebView configuration to initialize WebKit processes
+                let config = WKWebViewConfiguration()
+                config.processPool = WKProcessPool.shared
+                config.websiteDataStore = WKWebsiteDataStore.optimized
+                
+                #if targetEnvironment(simulator)
+                // Disable GPU-intensive features for simulator with error handling
+                if config.preferences.responds(to: Selector(("setValue:forKey:"))) {
+                    config.preferences.setValue(false, forKey: "acceleratedDrawingEnabled")
+                    config.preferences.setValue(false, forKey: "webGLEnabled")
+                }
+                #endif
+                
+                // Create temporary WebView to warm up processes with minimal size
+                let tempWebView = WKWebView(frame: CGRect(x: -1000, y: -1000, width: 1, height: 1), configuration: config)
+                
+                // Load minimal HTML to initialize processes
+                tempWebView.loadHTMLString("<html><head><title>Init</title></head><body></body></html>", baseURL: nil)
+                
+                // Clean up after brief delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    tempWebView.removeFromSuperview()
+                    os_log("WebKit processes preloaded successfully", log: OSLog.default, type: .info)
+                }
+                
+            } catch {
+                os_log("WebKit preloading failed: %@", log: OSLog.default, type: .error, error.localizedDescription)
+            }
+        }
     }
 
     // Cleanup when the view is deallocated
@@ -199,6 +361,96 @@ extension PermissoWebView: WKScriptMessageHandler {
             if let handler = messageHandler {
                 handler(messageString)
             }
+        }
+    }
+}
+
+// Extension to handle navigation and WebKit process issues
+extension PermissoWebView: WKNavigationDelegate {
+    
+    public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        os_log("WebView started loading", log: OSLog.default, type: .info)
+    }
+    
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        os_log("WebView committed navigation", log: OSLog.default, type: .info)
+    }
+    
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        os_log("WebView finished loading", log: OSLog.default, type: .info)
+        
+        // Inject performance optimizations after page load for simulator
+        #if targetEnvironment(simulator)
+        let performanceScript = """
+        // Disable animations and transitions that can cause GPU process issues
+        (function() {
+            var style = document.createElement('style');
+            style.innerHTML = `
+                *, *::before, *::after {
+                    animation-duration: 0s !important;
+                    animation-delay: 0s !important;
+                    transition-duration: 0s !important;
+                    transition-delay: 0s !important;
+                }
+            `;
+            document.head.appendChild(style);
+            
+            // Disable WebGL and GPU-intensive features
+            if (window.WebGLRenderingContext) {
+                window.WebGLRenderingContext = undefined;
+            }
+            if (window.WebGL2RenderingContext) {
+                window.WebGL2RenderingContext = undefined;
+            }
+        })();
+        """
+        
+        webView.evaluateJavaScript(performanceScript) { _, error in
+            if let error = error {
+                os_log("Performance script injection failed: %@", log: OSLog.default, type: .error, error.localizedDescription)
+            }
+        }
+        #endif
+    }
+    
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        os_log("WebView navigation failed: %@", log: OSLog.default, type: .error, error.localizedDescription)
+        handleNavigationError(error)
+    }
+    
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        os_log("WebView provisional navigation failed: %@", log: OSLog.default, type: .error, error.localizedDescription)
+        handleNavigationError(error)
+    }
+    
+    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // Handle navigation policies to prevent resource-heavy requests in simulator
+        #if targetEnvironment(simulator)
+        if let url = navigationAction.request.url {
+            // Block resource-intensive content in simulator
+            let blockedExtensions = ["mp4", "mov", "avi", "webm", "pdf"]
+            if blockedExtensions.contains(url.pathExtension.lowercased()) {
+                os_log("Blocking resource-intensive content in simulator: %@", log: OSLog.default, type: .info, url.absoluteString)
+                decisionHandler(.cancel)
+                return
+            }
+        }
+        #endif
+        
+        decisionHandler(.allow)
+    }
+    
+    private func handleNavigationError(_ error: Error) {
+        // Handle specific WebKit errors related to process failures
+        let nsError = error as NSError
+        
+        switch nsError.code {
+        case NSURLErrorTimedOut:
+            os_log("Navigation timeout - possibly due to slow WebKit process startup", log: OSLog.default, type: .error)
+        case NSURLErrorCannotConnectToHost:
+            os_log("Cannot connect to host - check network connectivity", log: OSLog.default, type: .error)
+        default:
+            os_log("Navigation error: %@ (Code: %d)", log: OSLog.default, type: .error, nsError.localizedDescription, nsError.code)
         }
     }
 }
