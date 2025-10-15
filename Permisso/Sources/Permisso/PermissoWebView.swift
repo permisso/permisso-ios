@@ -129,24 +129,38 @@ public class PermissoWebView: UIView {
         let contentController = configuration.userContentController
         contentController.add(self, name: "iosBridge")
 
-        // Optimized JavaScript injection - minimal and fast
+        // Restore full JavaScript bridge functionality for postMessage events
         let postMessageScript = """
+        // Enhanced postMessage listener with debugging
+        console.log('PermissoWebView: Setting up message bridge...');
+        
         window.addEventListener('message', function(e) {
           try {
+            console.log('PermissoWebView: Received postMessage:', e.data);
             var data = e.data;
             if (typeof data === 'string') {
               try { data = JSON.parse(data); } catch(_) {}
             }
             if (window.webkit?.messageHandlers?.iosBridge) {
+              console.log('PermissoWebView: Forwarding to native bridge');
               window.webkit.messageHandlers.iosBridge.postMessage(JSON.stringify(data));
+            } else {
+              console.error('PermissoWebView: iosBridge not available');
             }
           } catch (err) {
-            console.log("iosBridge error:", err);
+            console.error("PermissoWebView bridge error:", err);
           }
         });
+        
+        // Also listen for events that might be sent via other methods
+        window.addEventListener('load', function() {
+          console.log('PermissoWebView: Page loaded, bridge ready');
+        });
+        
+        console.log('PermissoWebView: Message bridge setup complete');
         """
 
-        let userScript = WKUserScript(source: postMessageScript, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        let userScript = WKUserScript(source: postMessageScript, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         contentController.addUserScript(userScript)
 
         // Create WebView with error handling
@@ -364,9 +378,24 @@ extension PermissoWebView: WKScriptMessageHandler {
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "iosBridge" else { return }
 
-        if let messageString = message.body as? String {
-            // Call the custom message handler if provided
-            if let handler = messageHandler {
+        // Handle both string and object message bodies
+        var messageString: String
+        
+        if let stringBody = message.body as? String {
+            messageString = stringBody
+        } else {
+            // Convert non-string bodies to JSON
+            do {
+                let jsonData = try JSONSerialization.data(withJSONObject: message.body, options: [])
+                messageString = String(data: jsonData, encoding: .utf8) ?? String(describing: message.body)
+            } catch {
+                messageString = String(describing: message.body)
+            }
+        }
+        
+        // Call the custom message handler if provided
+        if let handler = messageHandler {
+            DispatchQueue.main.async {
                 handler(messageString)
             }
         }
@@ -386,6 +415,28 @@ extension PermissoWebView: WKNavigationDelegate {
     
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         os_log("WebView finished loading", log: OSLog.default, type: .info)
+        
+        // Test the message bridge to ensure it's working
+        let bridgeTestScript = """
+        console.log('PermissoWebView: Testing message bridge after page load...');
+        if (window.webkit?.messageHandlers?.iosBridge) {
+            window.webkit.messageHandlers.iosBridge.postMessage(JSON.stringify({
+                type: 'bridge_connected',
+                message: 'PermissoWebView bridge is working',
+                url: window.location.href,
+                timestamp: Date.now()
+            }));
+            console.log('PermissoWebView: Bridge test message sent successfully');
+        } else {
+            console.error('PermissoWebView: Bridge not available after page load!');
+        }
+        """
+        
+        webView.evaluateJavaScript(bridgeTestScript) { _, error in
+            if let error = error {
+                os_log("Bridge test failed: %@", log: OSLog.default, type: .error, error.localizedDescription)
+            }
+        }
         
         // Inject performance optimizations after page load for simulator
         #if targetEnvironment(simulator)
