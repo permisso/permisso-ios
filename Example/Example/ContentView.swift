@@ -7,6 +7,5 @@ struct ContentView: View {
         // Use our custom representable view.
         // The `.ignoresSafeArea()` makes it go edge-to-edge.
         PermissoWebViewRepresentable(url: permissoURL)
-            .ignoresSafeArea()
     }
 }

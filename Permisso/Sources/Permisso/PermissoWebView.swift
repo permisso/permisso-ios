@@ -189,7 +189,7 @@ public class PermissoWebView: UIView {
         fallbackLabel.textAlignment = .center
         fallbackLabel.numberOfLines = 0
         fallbackLabel.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        fallbackLabel.backgroundColor = UIColor.systemBackground
+        fallbackLabel.backgroundColor = UIColor.white
         self.addSubview(fallbackLabel)
     }
 
@@ -255,6 +255,10 @@ public class PermissoWebView: UIView {
     public static func preloadWebKitProcesses() {
         // Only preload on main thread to avoid WebKit initialization issues
         DispatchQueue.main.async {
+            #if targetEnvironment(simulator)
+            os_log("Attempting WebKit preload in simulator environment", log: OSLog.default, type: .info)
+            #endif
+            
             do {
                 // Create a minimal WebView configuration to initialize WebKit processes
                 let config = WKWebViewConfiguration()
@@ -267,6 +271,10 @@ public class PermissoWebView: UIView {
                     config.preferences.setValue(false, forKey: "acceleratedDrawingEnabled")
                     config.preferences.setValue(false, forKey: "webGLEnabled")
                 }
+                
+                // Additional simulator-specific sandbox workarounds
+                config.suppressesIncrementalRendering = true
+                config.preferences.javaScriptEnabled = true
                 #endif
                 
                 // Create temporary WebView to warm up processes with minimal size
@@ -282,7 +290,7 @@ public class PermissoWebView: UIView {
                 }
                 
             } catch {
-                os_log("WebKit preloading failed: %@", log: OSLog.default, type: .error, error.localizedDescription)
+                os_log("WebKit preloading failed - possible sandbox extension issue: %@", log: OSLog.default, type: .error, error.localizedDescription)
             }
         }
     }
