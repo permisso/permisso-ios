@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		84BBCFDD2E9C179E001EDC40 /* PermissoWebView in Frameworks */ = {isa = PBXBuildFile; productRef = 84BBCFDC2E9C179E001EDC40 /* PermissoWebView */; };
+		844CDC6C2EA27B3D00D52E78 /* Permisso in Frameworks */ = {isa = PBXBuildFile; productRef = 844CDC6B2EA27B3D00D52E78 /* Permisso */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,7 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				84BBCFDD2E9C179E001EDC40 /* PermissoWebView in Frameworks */,
+				844CDC6C2EA27B3D00D52E78 /* Permisso in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,7 +70,7 @@
 			);
 			name = Example;
 			packageProductDependencies = (
-				84BBCFDC2E9C179E001EDC40 /* PermissoWebView */,
+				844CDC6B2EA27B3D00D52E78 /* Permisso */,
 			);
 			productName = Example;
 			productReference = 84394D8F2E9BD4E600872CFB /* Example.app */;
@@ -101,7 +101,7 @@
 			mainGroup = 84394D862E9BD4E600872CFB;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				84BBCFDB2E9C179E001EDC40 /* XCLocalSwiftPackageReference "../Permisso" */,
+				844CDC6A2EA27B3D00D52E78 /* XCLocalSwiftPackageReference "../../permisso-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 84394D902E9BD4E600872CFB /* Products */;
@@ -351,16 +351,16 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		84BBCFDB2E9C179E001EDC40 /* XCLocalSwiftPackageReference "../Permisso" */ = {
+		844CDC6A2EA27B3D00D52E78 /* XCLocalSwiftPackageReference "../../permisso-ios" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../Permisso;
+			relativePath = "../../permisso-ios";
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		84BBCFDC2E9C179E001EDC40 /* PermissoWebView */ = {
+		844CDC6B2EA27B3D00D52E78 /* Permisso */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = PermissoWebView;
+			productName = Permisso;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

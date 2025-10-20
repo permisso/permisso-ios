@@ -35,7 +35,7 @@ Or add it through Xcode:
 
 ```swift
 import UIKit
-import PermissoWebView
+import Permisso
 
 class ViewController: UIViewController {
 
@@ -63,7 +63,7 @@ class ViewController: UIViewController {
 
 ```swift
 import SwiftUI
-import PermissoWebView
+import Permisso
 
 struct ContentView: View {
     let widgetURL = URL(string: "https://prms.io/XXXXXX")!

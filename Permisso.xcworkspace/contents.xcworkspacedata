@@ -15,9 +15,6 @@
             </FileRef>
          </Group>
       </Group>
-      <FileRef
-         location = "group:Package.swift">
-      </FileRef>
       <Group
          location = "group:Sources"
          name = "Sources">

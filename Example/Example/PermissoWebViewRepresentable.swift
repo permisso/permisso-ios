@@ -1,6 +1,6 @@
 import SwiftUI
 import WebKit
-import PermissoWebView
+import Permisso
 import os.log
 
 struct PermissoWebViewRepresentable: UIViewRepresentable {

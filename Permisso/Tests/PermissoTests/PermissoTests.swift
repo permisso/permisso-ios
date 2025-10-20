@@ -1,6 +1,8 @@
-import Testing
+import XCTest
 @testable import Permisso
 
-@Test func example() async throws {
-    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+final class PermissoTests: XCTestCase {
+    func testExample() throws {
+        // Write your test here and use APIs like `XCTAssertEqual(...)` to check expected conditions.
+    }
 }
