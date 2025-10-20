@@ -71,15 +71,22 @@ public class PermissoWebView: UIView {
     // Configuration logic
     private func setupWebView() {
         let configuration = WKWebViewConfiguration()
+
         // Important: This allows JavaScript to open windows
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
 
+        // Performance optimizations
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+
         // Add message handler to intercept postMessage events
         let contentController = configuration.userContentController
+
+        // This allows us to listen for messages from the web content
         contentController.add(self, name: "iosBridge")
 
         // Inject JavaScript to listen for postMessage events
-        let postMessageScript = """
+        let postMessageScriptSource = """
         window.addEventListener('message', function(e) {
           try {
             var data = e.data;
@@ -95,9 +102,26 @@ public class PermissoWebView: UIView {
           }
         });
         """
-
-        let userScript = WKUserScript(source: postMessageScript, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        let userScript = WKUserScript(
+            source: postMessageScriptSource,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
         contentController.addUserScript(userScript)
+
+        // Disable zoom through injected JavaScript
+        let viewportScriptSource = """
+            var meta = document.createElement('meta');
+            meta.name = 'viewport';
+            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+            document.getElementsByTagName('head')[0].appendChild(meta);
+        """
+        let viewportScript = WKUserScript(
+            source: viewportScriptSource,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        contentController.addUserScript(viewportScript)
 
         webView = WKWebView(frame: self.bounds, configuration: configuration)
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -105,13 +129,23 @@ public class PermissoWebView: UIView {
         // Set the delegate that handles UI events like opening new tabs
         webView.uiDelegate = self
 
+        // Disable scroll
+        webView.scrollView.bounces = false
+        webView.scrollView.showsHorizontalScrollIndicator = false
+        webView.scrollView.showsVerticalScrollIndicator = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+
         self.addSubview(webView)
     }
 
     // Public method for the customer to load the widget URL
     public func load(url: URL) {
-        let request = URLRequest(url: url)
-        webView.load(request)
+        // Ensure web view loading happens on the main thread, but don't block if called from background
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let request = URLRequest(url: url)
+            self.webView.load(request)
+        }
     }
 
     // Public method to configure link handling behavior
@@ -127,7 +161,21 @@ public class PermissoWebView: UIView {
 
     // Cleanup when the view is deallocated
     deinit {
-        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "iosBridge")
+        cleanup()
+    }
+
+    // Explicit cleanup method
+    private func cleanup() {
+        // Remove script message handler to prevent memory leaks
+        if let webView = webView {
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: "iosBridge")
+            webView.uiDelegate = nil
+        }
+
+        // Clear references
+        webView = nil
+        customLinkHandler = nil
+        messageHandler = nil
     }
 }
 
@@ -144,32 +192,49 @@ extension PermissoWebView: WKUIDelegate {
 
     // Handle link navigation based on configured behavior
     private func handleLinkNavigation(url: URL) {
-        switch linkBehavior {
-        case .customTab:
-            // Open in SFSafariViewController (in-app browser)
-            if let parentVC = findParentViewController() {
-                let safariVC = SFSafariViewController(url: url)
-                parentVC.present(safariVC, animated: true)
-            } else {
-                // Fallback to external browser if no parent VC found
-                UIApplication.shared.open(url)
-            }
+        // Dispatch UI operations to main thread to avoid blocking
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
 
-        case .externalBrowser:
-            // Open in external Safari
-            UIApplication.shared.open(url)
-
-        case .custom:
-            // Use custom handler if provided, otherwise fallback to custom tab
-            if let customHandler = customLinkHandler {
-                customHandler(url)
-            } else {
-                // Fallback to custom tab if no custom handler is provided
-                if let parentVC = findParentViewController() {
+            switch self.linkBehavior {
+            case .customTab:
+                // Open in SFSafariViewController (in-app browser)
+                if let parentVC = self.findParentViewController() {
                     let safariVC = SFSafariViewController(url: url)
                     parentVC.present(safariVC, animated: true)
                 } else {
+                    // Fallback to external browser if no parent VC found
+                    // Dispatch URL opening to background thread to avoid blocking UI
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        UIApplication.shared.open(url)
+                    }
+                }
+
+            case .externalBrowser:
+                // Open in external Safari - dispatch to background thread
+                DispatchQueue.global(qos: .userInitiated).async {
                     UIApplication.shared.open(url)
+                }
+
+            case .custom:
+                // Use custom handler if provided, otherwise fallback to custom tab
+                if let customHandler = self.customLinkHandler {
+                    // Custom handlers might perform network operations, so dispatch to background
+                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                        // Ensure self is still alive when executing the handler
+                        guard self != nil else { return }
+                        customHandler(url)
+                    }
+                } else {
+                    // Fallback to custom tab if no custom handler is provided
+                    if let parentVC = self.findParentViewController() {
+                        let safariVC = SFSafariViewController(url: url)
+                        parentVC.present(safariVC, animated: true)
+                    } else {
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            UIApplication.shared.open(url)
+                        }
+                    }
                 }
             }
         }
@@ -196,8 +261,13 @@ extension PermissoWebView: WKScriptMessageHandler {
 
         if let messageString = message.body as? String {
             // Call the custom message handler if provided
+            // Dispatch message handling to background thread to avoid blocking UI
             if let handler = messageHandler {
-                handler(messageString)
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    // Ensure self is still alive when executing the handler
+                    guard self != nil else { return }
+                    handler(messageString)
+                }
             }
         }
     }
