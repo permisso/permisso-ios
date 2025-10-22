@@ -4,7 +4,7 @@ import SafariServices // Import for the in-app browser
 import os.log
 
 // Enum to define link handling behavior
-public enum PermissoLinkBehavior {
+public enum PermissoLinkBehavior: CaseIterable {
     case customTab      // Open in SFSafariViewController (in-app browser)
     case externalBrowser // Open in external Safari
     case custom         // Use custom callback
@@ -16,6 +16,38 @@ public typealias PermissoLinkHandler = (URL) -> Void
 // Callback type for message handling
 public typealias PermissoMessageHandler = (String) -> Void
 
+/// **Advanced API**: Direct access to the Permisso web view for custom embedding scenarios.
+///
+/// **⚠️ Most developers should use `Permisso.shared.present(from:url:)` instead.**
+///
+/// This class provides direct access to the underlying web view component for advanced use cases
+/// such as:
+/// - Custom container view controllers with specific presentation requirements
+/// - Complex view hierarchies with custom animations
+/// - Specific Auto Layout requirements that can't be met with the standard modal presentation
+/// - Non-standard presentation styles (e.g., embedding in tab controllers, navigation stacks)
+///
+/// **Trade-offs of using this advanced API:**
+/// - More complexity: You must handle view lifecycle, frame management, and cleanup
+/// - More error-prone: Potential Auto Layout conflicts, responder chain issues
+/// - Higher maintenance: More integration code to write and maintain
+/// - Less tested: The static API receives more testing and validation
+///
+/// **Recommended Usage:**
+/// ```swift
+/// // ✅ Recommended: Use the static API for most cases
+/// Permisso.shared.configure { config in
+///     config.linkBehavior = .externalBrowser
+/// }
+/// Permisso.shared.present(from: self, url: url)
+///
+/// // ⚠️ Advanced: Only use PermissoWebView for custom embedding
+/// let permissoView = PermissoWebView()
+/// permissoView.parentViewController = self
+/// permissoView.configureLinkBehavior(.customTab)
+/// view.addSubview(permissoView)
+/// permissoView.load(url: url)
+/// ```
 public class PermissoWebView: UIView {
 
     // The actual web view, kept private
